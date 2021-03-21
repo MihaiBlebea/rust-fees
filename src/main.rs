@@ -4,9 +4,9 @@ use std::fmt::{Error, Display, Formatter, Result as Res};
 use std::result::{Result};
 
 fn main() {
-    let chip_lite = Plan::new(0, Currency::GBP, Duration::days(28));
-    let chip_ai = Plan::new(150, Currency::GBP, Duration::days(28));
-    let chip_x = Plan::new(300, Currency::GBP, Duration::days(28));
+    let chip_lite = Plan::new(Money::new(0, Currency::GBP), Duration::days(28));
+    let chip_ai = Plan::new(Money::new(150, Currency::GBP), Duration::days(28));
+    let chip_x = Plan::new(Money::new(300, Currency::GBP), Duration::days(28));
 
     let mut sub_chip_ai = Subscription::new(chip_ai);
 
@@ -37,6 +37,7 @@ impl Display for Currency {
     }
 }
 
+#[derive(Debug)]
 struct Money {
     amount: u32,
     currency: Currency
@@ -73,17 +74,16 @@ impl Money {
 #[derive(Debug)]
 struct Plan {
     id: String,
-    fee: u32,
-    currency: Currency,
+    money: Money,
     transition: String,
     billing_cycle: Duration
 }
 
 impl Plan {
-    fn new(fee: u32, currency: Currency, billing_cycle: Duration) -> Self {
+    fn new(money: Money, billing_cycle: Duration) -> Self {
         let id = Uuid::new_v4().to_string().clone();
         let transition = id.clone();
-        Plan{id, fee, currency, transition, billing_cycle}
+        Plan{id, money, transition, billing_cycle}
     }
 
     fn set_transition(mut self, transition: String) {
@@ -93,7 +93,7 @@ impl Plan {
 
 impl Print for Plan {
     fn print(&self) {
-        println!("{}, {}, {}, {}", self.id, self.fee, self.currency, self.transition)
+        println!("id {} - cost {}{} - transition to {}", self.id, self.money.amount, self.money.currency, self.transition)
     }
 }
 
@@ -126,19 +126,18 @@ trait Print {
     fn print(&self);
 }
 
-fn calculate_price_diff(subscription: Subscription, next_plan: Plan) -> u32 {
-    if subscription.plan.fee > next_plan.fee {
-        return 0 as u32;
+fn calculate_price_diff(subscription: Subscription, next_plan: Plan) -> Money {
+    if subscription.plan.money.gt(&next_plan.money) {
+        return Money::new(0, Currency::GBP);
     }
 
     let now: DateTime<Utc> = Utc::now();
     let days = (now - subscription.start_at).num_days();
 
-    let fee = subscription.plan.fee;
-    let fee_per_day = fee / (subscription.plan.billing_cycle.num_days() as u32);
-    let current_fee = fee_per_day * (days as u32);
+    let fee_per_day = subscription.plan.money.amount / (subscription.plan.billing_cycle.num_days() as u32);
+    let current_fee = Money::new(fee_per_day * (days as u32), Currency::GBP);
 
-    next_plan.fee - current_fee
+    next_plan.money.sub(&current_fee).expect("Currency should be the same")
 }
 
 fn past_date(days: i64) -> DateTime<Utc> {
@@ -149,8 +148,8 @@ fn past_date(days: i64) -> DateTime<Utc> {
 
 #[test]
 fn test_calculate_price_diff_upgrade() {
-    let chip_ai = Plan::new(150, Currency::GBP, Duration::days(28));
-    let chip_x = Plan::new(300, Currency::GBP, Duration::days(28));
+    let chip_ai = Plan::new(Money::new(150, Currency::GBP), Duration::days(28));
+    let chip_x = Plan::new(Money::new(300, Currency::GBP), Duration::days(28));
 
     let mut sub_chip_ai = Subscription::new(chip_ai);
 
@@ -159,17 +158,19 @@ fn test_calculate_price_diff_upgrade() {
 
     let res = calculate_price_diff(sub_chip_ai, chip_x);
 
-    assert_eq!(res, 285)
+    assert_eq!(res.amount, 285);
+    assert_eq!(res.currency, Currency::GBP);
 }
 
 #[test]
 fn test_calculate_price_diff_downgrade() {
-    let chip_lite = Plan::new(0, Currency::GBP, Duration::days(28));
-    let chip_ai = Plan::new(150, Currency::GBP, Duration::days(28));
+    let chip_lite = Plan::new(Money::new(0, Currency::GBP), Duration::days(28));
+    let chip_ai = Plan::new(Money::new(150, Currency::GBP), Duration::days(28));
 
     let sub_chip_ai = Subscription::new(chip_ai);
 
     let res = calculate_price_diff(sub_chip_ai, chip_lite);
 
-    assert_eq!(res, 0)
+    assert_eq!(res.amount, 0);
+    assert_eq!(res.currency, Currency::GBP);
 }
